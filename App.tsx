@@ -1,24 +1,16 @@
-import React, { useState } from 'react';
-import { Button, Image, View, StyleSheet, Alert, Text } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
-import * as FileSystem from 'expo-file-system';
+import React, { useState } from "react";
+import { View, Button, Image, Alert, StyleSheet } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import { uploadImage } from "./firebase/Storage";
+import { savePhotoMetadata } from "./firebase/Firestore";
 
 export default function App() {
   const [image, setImage] = useState<string | null>(null);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
 
-  const requestPermissions = async () => {
-    const { status: locationStatus } = await Location.requestForegroundPermissionsAsync();
-
-    if (locationStatus !== 'granted') {
-      Alert.alert('Permission Denied', 'Izin lokasi diperlukan untuk menggunakan fitur ini.');
-      return false;
-    }
-    return true;
-  };
-
   const pickImage = async () => {
+    console.log("pickImage function called");
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
       allowsEditing: true,
@@ -26,67 +18,64 @@ export default function App() {
       quality: 1,
     });
 
-    console.log(result);
+    console.log("ImagePicker result:", result);
 
     if (!result.canceled) {
       setImage(result.assets[0].uri);
+      console.log("Image URI set:", result.assets[0].uri);
     }
   };
 
   const captureLocation = async () => {
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+    console.log("captureLocation function called");
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    console.log("Location permission status:", status);
 
-    try {
-      const loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc);
-      Alert.alert('Location Captured', `Latitude: ${loc.coords.latitude}, Longitude: ${loc.coords.longitude}`);
-    } catch (error) {
-      console.error('Error capturing location:', error);
-      Alert.alert('Error', 'Tidak dapat mengambil lokasi.');
-    }
-  };
-
-  const ensureDownloadFolderExists = async () => {
-    const downloadFolder = `${FileSystem.documentDirectory}Download/`;
-    const folderInfo = await FileSystem.getInfoAsync(downloadFolder);
-
-    if (!folderInfo.exists) {
-      console.log('Folder unduhan tidak ada. Membuat...');
-      await FileSystem.makeDirectoryAsync(downloadFolder, { intermediates: true });
-      console.log('Folder unduhan dibuat.');
+    if (status !== "granted") {
+      Alert.alert("Permission Denied", "Location permissions are required.");
+      return;
     }
 
-    return downloadFolder;
+    const loc = await Location.getCurrentPositionAsync({});
+    setLocation(loc);
+    console.log("Location captured:", loc);
   };
 
-  const saveDataToFile = async () => {
+  const saveData = async () => {
+    console.log("saveData function called");
     if (!image || !location) {
-      Alert.alert('Error', 'Pastikan gambar dan lokasi sudah diambil.');
+      Alert.alert("Error", "Image and location are required.");
+      console.log("Error: Image and location are required.");
       return;
     }
 
     try {
-      const downloadFolder = await ensureDownloadFolderExists();
-      const fileName = `${downloadFolder}data_${Date.now()}.txt`;
-      const fileContent = `Image URI: ${image}\nLatitude: ${location.coords.latitude}\nLongitude: ${location.coords.longitude}\nTimestamp: ${new Date(location.timestamp).toString()}`;
+      const fileName = `photo_${Date.now()}.jpg`;
+      console.log("Generated file name:", fileName);
+      const downloadURL = await uploadImage(image, fileName);
+      console.log("Image uploaded, download URL:", downloadURL);
 
-      await FileSystem.writeAsStringAsync(fileName, fileContent);
-      Alert.alert('Success', `Data disimpan ke: ${fileName}`);
-      console.log('File disimpan di:', fileName);
+      await savePhotoMetadata({
+        imageUrl: downloadURL,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        timestamp: new Date(location.timestamp).toISOString(),
+      });
+
+      Alert.alert("Success", "Photo and location saved.");
+      console.log("Photo and location metadata saved.");
     } catch (error) {
-      console.error('Error saving file:', error);
-      Alert.alert('Error', 'Tidak dapat menyimpan data ke file.');
+      console.error("Error saving data:", error);
+      Alert.alert("Error", "Failed to save data.");
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text>Contoh Geolocation & Image Picker</Text>
-      <Button title="Pilih gambar dari galeri" onPress={pickImage} />
-      <Button title="Tangkap Lokasi" onPress={captureLocation} />
+      <Button title="Pick Image" onPress={pickImage} />
+      <Button title="Capture Location" onPress={captureLocation} />
+      <Button title="Save to Firebase" onPress={saveData} />
       {image && <Image source={{ uri: image }} style={styles.image} />}
-      <Button title="Simpan Data" onPress={saveDataToFile} disabled={!image || !location} />
     </View>
   );
 }
@@ -94,11 +83,12 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   image: {
     width: 200,
     height: 200,
+    marginTop: 20,
   },
 });
