@@ -1,5 +1,5 @@
 import { StyleSheet } from 'react-native';
-
+// ini week 5
 const styles = StyleSheet.create({
     container: {
         flex: 1,
